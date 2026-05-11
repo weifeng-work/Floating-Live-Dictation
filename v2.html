@@ -17,7 +17,7 @@
     <script>
         const inputBox = document.getElementById('inputBox');
         const HOST = 'http://10.0.2.2:5000'; // 模拟器指向宿主机
-        const CUT_THRESHOLD = 150; // 当文字超过 150 字时触发切割保存
+        const CUT_THRESHOLD = 1000; // 当文字超过 10000字时触发切割保存
 
         inputBox.addEventListener('input', () => {
             let text = inputBox.value;
