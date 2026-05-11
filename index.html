@@ -1,28 +1,72 @@
-// 建议在 HTML 中放置一个 id="inputBox" 的 textarea
-const inputBox = document.getElementById('inputBox');
-let lastText = "";
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>语音输入转接站</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            background-color: #f0f2f5;
+            font-family: sans-serif;
+        }
+        #inputBox {
+            width: 100%;
+            height: 80vh;
+            padding: 15px;
+            font-size: 18px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            box-sizing: border-box;
+            outline: none;
+            resize: none;
+        }
+        #inputBox:focus {
+            border-color: #007bff;
+        }
+        .info {
+            margin-bottom: 10px;
+            color: #666;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
 
-inputBox.addEventListener('input', (e) => {
-    const currentText = e.target.value;
-    
-    // 如果是新增文字（豆包输入法上屏）
-    if (currentText.length > lastText.length) {
-        const delta = currentText.substring(lastText.length);
-        sendToHost(delta);
-    } 
-    // 如果检测到文本大幅变动（说明豆包修正了之前的词或清空了）
-    else if (Math.abs(currentText.length - lastText.length) > 5) {
-        sendToHost("[REFRESH]" + currentText.slice(-20)); // 发送最后20个字重置显示
-    }
+    <div class="info">请点击下方区域并使用豆包输入法进行语音输入：</div>
+    <textarea id="inputBox" placeholder="在这里说话..."></textarea>
 
-    lastText = currentText;
-});
+    <script>
+        const inputBox = document.getElementById('inputBox');
+        let lastText = "";
 
-function sendToHost(text) {
-    // 10.0.2.2 是安卓模拟器访问宿主机的默认网关 IP
-    fetch('http://10.0.2.2:5000/stream', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: text })
-    }).catch(err => console.error("转发失败，请检查 Python 后端是否启动:", err));
-}
+        inputBox.addEventListener('input', (e) => {
+            const currentText = e.target.value;
+            
+            // 逻辑 1：新增文字
+            if (currentText.length > lastText.length) {
+                const delta = currentText.substring(lastText.length);
+                sendToHost(delta);
+            } 
+            // 逻辑 2：大幅变动（修正或清空）
+            else if (Math.abs(currentText.length - lastText.length) > 5) {
+                sendToHost("[REFRESH]" + currentText.slice(-20)); 
+            }
+
+            lastText = currentText;
+        });
+
+        function sendToHost(text) {
+            // 注意：如果是在模拟器里测试，10.0.2.2 通常指向你的 PC
+            fetch('http://10.0.2.2:5000/stream', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content: text })
+            }).catch(err => {
+                console.error("转发失败，请确保电脑上的 Python 脚本已运行:", err);
+            });
+        }
+    </script>
+</body>
+</html>
