@@ -3,26 +3,32 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>专业语音听写工作站</title>
+    <title>语音听写工作站 V2.0</title>
     <style>
-        body { padding: 20px; font-family: sans-serif; background-color: #f0f2f5; }
-        .controls { margin-bottom: 15px; }
-        button { padding: 10px 20px; font-size: 16px; margin-right: 10px; cursor: pointer; border: none; border-radius: 5px; font-weight: bold; }
+        body { padding: 20px; background-color: #f0f2f5; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        .header { margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between; }
+        .btn-group { display: flex; gap: 10px; }
+        button { padding: 12px 24px; font-size: 15px; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; transition: all 0.2s; }
         #startBtn { background-color: #28a745; color: white; }
-        #startBtn:disabled { background-color: #94d3a2; cursor: not-allowed; }
+        #startBtn:disabled { background-color: #ccc; cursor: not-allowed; }
         #endBtn { background-color: #dc3545; color: white; }
-        #endBtn:disabled { background-color: #e49aa1; cursor: not-allowed; }
-        #inputBox { width: 100%; height: 60vh; padding: 15px; font-size: 18px; outline: none; box-sizing: border-box; }
-        #status { margin-bottom: 10px; color: #666; font-weight: bold; }
+        #endBtn:disabled { background-color: #ccc; cursor: not-allowed; }
+        #status { font-size: 14px; color: #666; }
+        #inputBox { width: 100%; height: 70vh; padding: 20px; font-size: 18px; line-height: 1.6; border: 2px solid #ddd; border-radius: 8px; box-sizing: border-box; outline: none; resize: none; }
+        #inputBox:focus { border-color: #007bff; }
     </style>
 </head>
 <body>
-    <div class="controls">
-        <button id="startBtn">▶ 开始演讲</button>
-        <button id="endBtn" disabled>⏹ 结束演讲并保存文件</button>
+
+    <div class="header">
+        <div class="btn-group">
+            <button id="startBtn">▶ 开始记录存盘</button>
+            <button id="endBtn" disabled>⏹ 结束记录并封档</button>
+        </div>
+        <div id="status">显示模式：常驻开启 | 录制模式：待命</div>
     </div>
-    <div id="status">系统待命中，请点击“开始演讲”初始化会话...</div>
-    <textarea id="inputBox" placeholder="点击上方开始按钮后，在此处使用豆包输入法讲话..."></textarea>
+
+    <textarea id="inputBox" placeholder="在此处开始说话，字幕将实时上屏..."></textarea>
 
     <script>
         const inputBox = document.getElementById('inputBox');
@@ -30,80 +36,88 @@
         const endBtn = document.getElementById('endBtn');
         const statusDiv = document.getElementById('status');
 
-        const HOST = 'http://10.0.2.2:5000';
-        const CUT_THRESHOLD = 150; // 黄金落盘区间
+        const HOST = 'http://10.0.2.2:5000'; 
+        const CUT_THRESHOLD = 150; // 每积攒 150 字尝试一次存盘
 
         let isRecording = false;
-        let cursor = 0; // 隐形游标初始化
+        let cursor = 0; // 虚拟游标，记录已经“存盘确定”的位置
 
-        // 初始化会话
+        // 初始化记录
         startBtn.addEventListener('click', async () => {
             try {
                 await fetch(HOST + '/start', { method: 'POST' });
+                
                 isRecording = true;
-                cursor = 0;
-                inputBox.value = '';
+                const currentAllText = inputBox.value;
+                
+                // 追溯保存：将当前框内已有内容全部存盘
+                if (currentAllText.length > 0) {
+                    await fetch(HOST + '/commit', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ content: currentAllText })
+                    });
+                }
+                
+                cursor = currentAllText.length; // 游标跳转至末尾
                 startBtn.disabled = true;
                 endBtn.disabled = false;
-                statusDiv.innerText = "🔴 正在记录演讲 (隐形游标备份模式运行中...)";
+                statusDiv.innerText = "显示模式：常驻开启 | 录制模式：🔴 正在保存中...";
                 statusDiv.style.color = "#dc3545";
             } catch (err) {
-                alert("无法连接到中继网关，请确保 AHK/Python 服务已运行。");
+                alert("无法连接到 Python 服务，请确认服务已启动。");
             }
         });
 
-        // 终结会话并封档
+        // 结束记录
         endBtn.addEventListener('click', async () => {
             if (!isRecording) return;
-            isRecording = false;
-
-            // 获取游标到末尾的所有剩余字符
-            const remainingText = inputBox.value.substring(cursor);
             
+            const remainingText = inputBox.value.substring(cursor);
             try {
                 await fetch(HOST + '/end', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ content: remainingText })
                 });
+                
+                isRecording = false;
+                cursor = inputBox.value.length; // 锁定游标
                 startBtn.disabled = false;
                 endBtn.disabled = true;
-                statusDiv.innerText = "✅ 演讲已结束，全文已安全封档至本地 TXT 文件！";
+                statusDiv.innerText = "显示模式：常驻开启 | 录制模式：✅ 已封档";
                 statusDiv.style.color = "#28a745";
-                cursor = inputBox.value.length; // 游标推至末尾，锁定状态
             } catch (err) {
-                alert("文件尾部保存失败，请检查网络连接。");
+                alert("封档请求失败。");
             }
         });
 
-        // 核心：无侵入式状态驱动更新
+        // 核心监听：流式显示 + 虚拟存盘
         inputBox.addEventListener('input', () => {
-            if (!isRecording) return;
+            const fullText = inputBox.value;
+            const activeText = fullText.substring(cursor); // 游标之后即为“活跃文本”
 
-            const text = inputBox.value;
-            const uncommittedText = text.substring(cursor);
-
-            // 1. 流式上屏：只将游标之后的“活跃文本”发送给 AHK 悬浮窗
+            // 1. 无条件流式上屏（发往 AHK）
             fetch(HOST + '/stream', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ content: uncommittedText })
-            }).catch(console.error);
+                body: JSON.stringify({ content: activeText })
+            }).catch(() => {});
 
-            // 2. 隐形切割与追加存盘
-            if (uncommittedText.length > CUT_THRESHOLD) {
-                // 正则表达式：贪婪匹配直到最后一个标点符号，防止将句子切断
-                const match = uncommittedText.match(/^[\s\S]*[。！？\.\!\?]/);
+            // 2. 有条件虚拟存盘（发往 Python 文件）
+            if (isRecording && activeText.length > CUT_THRESHOLD) {
+                // 寻找活跃文本中最后一个结束标点
+                const match = activeText.match(/^[\s\S]*[。！？\.\!\?]/);
                 if (match) {
-                    const commitText = match[0];
+                    const commitChunk = match[0];
                     fetch(HOST + '/commit', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ content: commitText })
+                        body: JSON.stringify({ content: commitChunk })
                     }).catch(console.error);
 
-                    // 关键动作：推进游标，但不触碰物理 inputBox.value
-                    cursor += commitText.length;
+                    // 推进游标，但不触碰 textarea 物理内容，不干扰输入法
+                    cursor += commitChunk.length;
                 }
             }
         });
