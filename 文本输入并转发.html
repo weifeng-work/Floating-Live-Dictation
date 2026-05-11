@@ -1,0 +1,28 @@
+// 建议在 HTML 中放置一个 id="inputBox" 的 textarea
+const inputBox = document.getElementById('inputBox');
+let lastText = "";
+
+inputBox.addEventListener('input', (e) => {
+    const currentText = e.target.value;
+    
+    // 如果是新增文字（豆包输入法上屏）
+    if (currentText.length > lastText.length) {
+        const delta = currentText.substring(lastText.length);
+        sendToHost(delta);
+    } 
+    // 如果检测到文本大幅变动（说明豆包修正了之前的词或清空了）
+    else if (Math.abs(currentText.length - lastText.length) > 5) {
+        sendToHost("[REFRESH]" + currentText.slice(-20)); // 发送最后20个字重置显示
+    }
+
+    lastText = currentText;
+});
+
+function sendToHost(text) {
+    // 10.0.2.2 是安卓模拟器访问宿主机的默认网关 IP
+    fetch('http://10.0.2.2:5000/stream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: text })
+    }).catch(err => console.error("转发失败，请检查 Python 后端是否启动:", err));
+}
