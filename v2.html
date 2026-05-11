@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>语音输入切分工作站</title>
+    <style>
+        body { padding: 20px; background-color: #f0f2f5; font-family: sans-serif; }
+        #inputBox { width: 100%; height: 60vh; padding: 15px; font-size: 18px; outline: none; }
+        .status { color: #007bff; font-weight: bold; margin-bottom: 10px; }
+    </style>
+</head>
+<body>
+    <div class="status" id="status">正在监听豆包输入法... (自动切割模式已开启)</div>
+    <textarea id="inputBox" placeholder="请在这里使用豆包语音输入..."></textarea>
+
+    <script>
+        const inputBox = document.getElementById('inputBox');
+        const HOST = 'http://10.0.2.2:5000'; // 模拟器指向宿主机
+        const CUT_THRESHOLD = 150; // 当文字超过 150 字时触发切割保存
+
+        inputBox.addEventListener('input', () => {
+            let text = inputBox.value;
+
+            // --- 核心逻辑 1：长文本切割存盘 (Cursor Checkpointing) ---
+            if (text.length > CUT_THRESHOLD) {
+                // 寻找第一个出现 句号、问号、感叹号 的位置
+                const match = text.match(/.*?[。！？.!?]/);
+                if (match) {
+                    const commitText = match[0]; // 截取下来的确定文本
+                    
+                    // 将这部分从输入框里无情删掉，保持输入框轻量
+                    text = text.substring(commitText.length);
+                    inputBox.value = text; 
+
+                    // 发送给 Python 的持久化接口保存
+                    fetch(HOST + '/commit', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ content: commitText })
+                    }).catch(err => console.error("Commit 失败", err));
+                }
+            }
+
+            // --- 核心逻辑 2：实时活跃窗口传输 ---
+            // 剩下的、正在后修的活跃文本，全量发给流式接口
+            fetch(HOST + '/stream', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content: text })
+            }).catch(err => console.error("Stream 失败", err));
+        });
+    </script>
+</body>
+</html>
