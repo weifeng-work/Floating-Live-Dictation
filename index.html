@@ -98,10 +98,14 @@
             const activeText = fullText.substring(cursor); // 游标之后即为“活跃文本”
 
             // 1. 无条件流式上屏（发往 AHK）
+            // 【核心修复】：无论 activeText 有多长，我们强制只截取最后 300 个字发给 AHK。
+            // 彻底解决 AHK 的 2048 字节 UDP 缓冲区溢出导致的字幕假死问题。
+            const streamText = activeText.length > 300 ? activeText.slice(-300) : activeText;
+            
             fetch(HOST + '/stream', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ content: activeText })
+                body: JSON.stringify({ content: streamText }) // 这里改为发送 streamText
             }).catch(() => {});
 
             // 2. 有条件虚拟存盘（发往 Python 文件）
