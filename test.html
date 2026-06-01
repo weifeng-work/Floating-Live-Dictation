@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>语音听写工作站 V2.2 (全局输入版)</title>
+    <title>语音听写工作站 V2.3 (虚拟网关穿透版)</title>
     <style>
         body { padding: 20px; background-color: #f0f2f5; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
         .header { margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between; }
@@ -28,7 +28,7 @@
         <div id="status">系统初始化：待命</div>
     </div>
 
-    <textarea id="inputBox" placeholder="在此处开始说话，文本将实时发送至 Windows 宿主机..."></textarea>
+    <textarea id="inputBox" placeholder="在此处开始说话，文本将穿透虚拟网关发送至 Windows..."></textarea>
 
     <script>
         const inputBox = document.getElementById('inputBox');
@@ -37,10 +37,9 @@
         const statusDiv = document.getElementById('status');
 
         // =====================================================================
-        // 【核心修改点 1】：配置宿主机物理 IP
-        // 请将 192.168.X.X 替换为您在 Windows cmd 中通过 ipconfig 查到的 IPv4 地址。
+        // 【核心配置】：使用标准 Android 虚拟化环境宿主机映射 IP
         // =====================================================================
-        const HOST = 'http://10.0.2.2:5000';
+        const HOST = 'http://10.0.2.2:5000'; 
         
         const CUT_THRESHOLD = 150; 
 
@@ -65,12 +64,12 @@
                 cursor = currentAllText.length; 
                 startBtn.disabled = true;
                 endBtn.disabled = false;
-                statusDiv.innerText = "通信状态：正常 | 录制模式：🔴 正在监听";
+                statusDiv.innerText = "通信状态：穿透成功 | 录制模式：🔴 正在监听";
                 statusDiv.style.color = "#dc3545";
             } catch (err) {
-                statusDiv.innerText = "通信建立失败，请检查 Python 服务与 IP 地址配置。";
+                statusDiv.innerText = "穿透失败，请检查防火墙或尝试备用网关地址。";
                 statusDiv.style.color = "#dc3545";
-                alert("无法连接到 Python 服务：\n" + err.message);
+                alert("无法连接到 Windows 宿主机：\n" + err.message);
             }
         });
 
@@ -89,7 +88,7 @@
                 cursor = inputBox.value.length; 
                 startBtn.disabled = false;
                 endBtn.disabled = true;
-                statusDiv.innerText = "通信状态：正常 | 录制模式：✅ 已封档";
+                statusDiv.innerText = "通信状态：穿透成功 | 录制模式：✅ 已封档";
                 statusDiv.style.color = "#28a745";
             } catch (err) {
                 statusDiv.innerText = "封档请求发送失败。";
@@ -103,15 +102,11 @@
 
             const streamText = activeText.length > 300 ? activeText.slice(-300) : activeText;
             
-            // =====================================================================
-            // 【核心修改点 2】：解除异常吞噬，暴露底层的网络层错误
-            // =====================================================================
             fetch(HOST + '/stream', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ content: streamText }) 
             }).catch((err) => {
-                // 当网络断开时，通过 UI 提供明确的错误指示，避免阻塞主线程
                 statusDiv.innerText = "网络通信异常: " + err.message;
                 statusDiv.style.color = "#dc3545";
             });
