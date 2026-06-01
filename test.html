@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>语音听写工作站 V2.2 (全局输入版)</title>
+    <style>
+        body { padding: 20px; background-color: #f0f2f5; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        .header { margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between; }
+        .btn-group { display: flex; gap: 10px; }
+        button { padding: 12px 24px; font-size: 15px; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; transition: all 0.2s; }
+        #startBtn { background-color: #28a745; color: white; }
+        #startBtn:disabled { background-color: #ccc; cursor: not-allowed; }
+        #endBtn { background-color: #dc3545; color: white; }
+        #endBtn:disabled { background-color: #ccc; cursor: not-allowed; }
+        #status { font-size: 14px; color: #666; font-weight: bold; }
+        #inputBox { width: 100%; height: 70vh; padding: 20px; font-size: 18px; line-height: 1.6; border: 2px solid #ddd; border-radius: 8px; box-sizing: border-box; outline: none; resize: none; }
+        #inputBox:focus { border-color: #007bff; }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <div class="btn-group">
+            <button id="startBtn">▶ 开始记录存盘</button>
+            <button id="endBtn" disabled>⏹ 结束记录并封档</button>
+        </div>
+        <div id="status">系统初始化：待命</div>
+    </div>
+
+    <textarea id="inputBox" placeholder="在此处开始说话，文本将实时发送至 Windows 宿主机..."></textarea>
+
+    <script>
+        const inputBox = document.getElementById('inputBox');
+        const startBtn = document.getElementById('startBtn');
+        const endBtn = document.getElementById('endBtn');
+        const statusDiv = document.getElementById('status');
+
+        // =====================================================================
+        // 【核心修改点 1】：配置宿主机物理 IP
+        // 请将 192.168.X.X 替换为您在 Windows cmd 中通过 ipconfig 查到的 IPv4 地址。
+        // =====================================================================
+        const HOST = 'http://192.168.X.X:5000'; 
+        
+        const CUT_THRESHOLD = 150; 
+
+        let isRecording = false;
+        let cursor = 0; 
+
+        startBtn.addEventListener('click', async () => {
+            try {
+                await fetch(HOST + '/start', { method: 'POST' });
+                
+                isRecording = true;
+                const currentAllText = inputBox.value;
+                
+                if (currentAllText.length > 0) {
+                    await fetch(HOST + '/commit', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ content: currentAllText })
+                    });
+                }
+                
+                cursor = currentAllText.length; 
+                startBtn.disabled = true;
+                endBtn.disabled = false;
+                statusDiv.innerText = "通信状态：正常 | 录制模式：🔴 正在监听";
+                statusDiv.style.color = "#dc3545";
+            } catch (err) {
+                statusDiv.innerText = "通信建立失败，请检查 Python 服务与 IP 地址配置。";
+                statusDiv.style.color = "#dc3545";
+                alert("无法连接到 Python 服务：\n" + err.message);
+            }
+        });
+
+        endBtn.addEventListener('click', async () => {
+            if (!isRecording) return;
+            
+            const remainingText = inputBox.value.substring(cursor);
+            try {
+                await fetch(HOST + '/end', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ content: remainingText })
+                });
+                
+                isRecording = false;
+                cursor = inputBox.value.length; 
+                startBtn.disabled = false;
+                endBtn.disabled = true;
+                statusDiv.innerText = "通信状态：正常 | 录制模式：✅ 已封档";
+                statusDiv.style.color = "#28a745";
+            } catch (err) {
+                statusDiv.innerText = "封档请求发送失败。";
+                statusDiv.style.color = "#dc3545";
+            }
+        });
+
+        inputBox.addEventListener('input', () => {
+            const fullText = inputBox.value;
+            const activeText = fullText.substring(cursor); 
+
+            const streamText = activeText.length > 300 ? activeText.slice(-300) : activeText;
+            
+            // =====================================================================
+            // 【核心修改点 2】：解除异常吞噬，暴露底层的网络层错误
+            // =====================================================================
+            fetch(HOST + '/stream', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content: streamText }) 
+            }).catch((err) => {
+                // 当网络断开时，通过 UI 提供明确的错误指示，避免阻塞主线程
+                statusDiv.innerText = "网络通信异常: " + err.message;
+                statusDiv.style.color = "#dc3545";
+            });
+
+            if (isRecording && activeText.length > CUT_THRESHOLD) {
+                const match = activeText.match(/^[\s\S]*[。！？\.\!\?]/);
+                if (match) {
+                    const commitChunk = match[0];
+                    fetch(HOST + '/commit', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ content: commitChunk })
+                    }).catch((err) => {
+                         statusDiv.innerText = "封档数据包发送失败: " + err.message;
+                         statusDiv.style.color = "#dc3545";
+                    });
+
+                    cursor += commitChunk.length;
+                }
+            }
+        });
+    </script>
+</body>
+</html>
