@@ -92,9 +92,16 @@
             }
         });
 
-        // 核心监听：流式显示 + 虚拟存盘
+       // 核心监听：流式显示 + 虚拟存盘
         inputBox.addEventListener('input', () => {
             const fullText = inputBox.value;
+            
+            // 【核心防御】：如果发现当前总长度比虚拟游标还要小，说明发生了物理删除/清场
+            // 此时强制重置游标为 0，防止 substring 截取发生黑洞截断
+            if (fullText.length < cursor) {
+                cursor = 0;
+            }
+            
             const activeText = fullText.substring(cursor); // 游标之后即为“活跃文本”
 
             // 1. 无条件流式上屏（发往 AHK）
