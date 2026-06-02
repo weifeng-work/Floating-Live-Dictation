@@ -96,9 +96,15 @@
             }
         });
 
-        inputBox.addEventListener('input', () => {
+       inputBox.addEventListener('input', () => {
             const fullText = inputBox.value;
-            const activeText = fullText.substring(cursor); 
+            
+            // 【核心防御】：物理清空检测与游标自愈
+            if (fullText.length < cursor) {
+                cursor = 0;
+            }
+            
+            const activeText = fullText.substring(cursor);
 
             const streamText = activeText.length > 300 ? activeText.slice(-300) : activeText;
             
