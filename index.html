@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>语音听写工作站 V2.1 (节流防抖优化版)</title>
+    <title>语音听写工作站 V2.1</title>
     <style>
         body { padding: 20px; background-color: #f0f2f5; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
         .header { margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between; }
@@ -38,11 +38,9 @@
 
         const HOST = 'http://10.0.2.2:5000'; 
         const CUT_THRESHOLD = 150; // 每积攒 150 字尝试一次存盘
-        const STREAM_THROTTLE_MS = 200; // 网络请求节流周期（单位：毫秒）
 
         let isRecording = false;
         let cursor = 0; // 虚拟游标，记录已经“存盘确定”的位置
-        let streamTimeout = null; // 节流定时器指针
 
         // 初始化记录
         startBtn.addEventListener('click', async () => {
@@ -94,20 +92,32 @@
             }
         });
 
-        // 核心监听：流式显示 + 虚拟存盘
+       // 核心监听：流式显示 + 虚拟存盘
         inputBox.addEventListener('input', () => {
             const fullText = inputBox.value;
             
-            // 【核心防御】：物理删除/清场判定
+            // 【核心防御】：如果发现当前总长度比虚拟游标还要小，说明发生了物理删除/清场
+            // 此时强制重置游标为 0，防止 substring 截取发生黑洞截断
             if (fullText.length < cursor) {
                 cursor = 0;
             }
             
-            let activeText = fullText.substring(cursor);
+            const activeText = fullText.substring(cursor); // 游标之后即为“活跃文本”
 
-            // 1. 同步执行有条件虚拟存盘（发往 Python 文件）
-            // 此步骤必须保持高优先级和同步性，确保在任何时候达到阈值或标点都能立即切割
+            // 1. 无条件流式上屏（发往 AHK）
+            // 【核心修复】：无论 activeText 有多长，我们强制只截取最后 300 个字发给 AHK。
+            // 彻底解决 AHK 的 2048 字节 UDP 缓冲区溢出导致的字幕假死问题。
+            const streamText = activeText.length > 300 ? activeText.slice(-300) : activeText;
+            
+            fetch(HOST + '/stream', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content: streamText }) // 这里改为发送 streamText
+            }).catch(() => {});
+
+            // 2. 有条件虚拟存盘（发往 Python 文件）
             if (isRecording && activeText.length > CUT_THRESHOLD) {
+                // 寻找活跃文本中最后一个结束标点
                 const match = activeText.match(/^[\s\S]*[。！？\.\!\?]/);
                 if (match) {
                     const commitChunk = match[0];
@@ -117,31 +127,9 @@
                         body: JSON.stringify({ content: commitChunk })
                     }).catch(console.error);
 
+                    // 推进游标，但不触碰 textarea 物理内容，不干扰输入法
                     cursor += commitChunk.length;
-                    
-                    // 存盘后，活跃文本发生了物理变动，必须更新变量以供下方的流式传输使用
-                    activeText = fullText.substring(cursor); 
                 }
-            }
-
-            // 2. 异步执行无条件流式上屏（节流控制发往 AHK）
-            // 如果定时器为空，说明上一个发送周期已结束，可以开启新的发送周期
-            if (!streamTimeout) {
-                streamTimeout = setTimeout(() => {
-                    // 【逻辑关键点】：在定时器触发的这一刻，重新获取文本状态。
-                    // 确保发送的是 200ms 后的最新文本，而不是 200ms 前触发该函数的旧文本。
-                    const currentActiveText = inputBox.value.substring(cursor);
-                    const streamText = currentActiveText.length > 300 ? currentActiveText.slice(-300) : currentActiveText;
-                    
-                    fetch(HOST + '/stream', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ content: streamText })
-                    }).catch(() => {});
-
-                    // 释放定时器指针，允许下一个 input 事件触发新的倒计时
-                    streamTimeout = null; 
-                }, STREAM_THROTTLE_MS);
             }
         });
     </script>
